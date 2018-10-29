@@ -5,6 +5,10 @@ const jwt = require('jsonwebtoken');
 const keys = require('../../config/keys');
 const passport = require('passport');
 
+//Load input validation
+const validateRegisterInput = require('../../validation/register');
+const validateLoginInput = require('../../validation/login');
+
 //Load User Model
 const User = require('../../models/User');
 
@@ -17,11 +21,18 @@ router.get('/test', (req, res) => res.json({ msg: 'Users Works' }));
 //@desc: Register a user
 //@access: Public
 router.post('/register', async (req, res) => {
+
+  const { errors, isValid } = validateRegisterInput(req.body);
+
+  if(!isValid){
+    return res.status(400).json(errors)
+  }
+
   const user = await User.findOne({ email: req.body.email });
-  const notUser = 'hello';
 
   if (user) {
-    return res.status(400).json({ email: 'Email already exists' });
+      errors.email = 'Email already exists'
+    return res.status(400).json(errors);
   } else {
     const newUser = new User({
       name: req.body.name,
@@ -47,6 +58,12 @@ router.post('/register', async (req, res) => {
 //@desc: Log in a user (return the jwt token)
 //@access: Public
 router.post('/login', (req, res) => {
+   const { errors, isValid } = validateLoginInput(req.body);
+
+   if(!isValid){
+        return res.status(400).json(errors)
+   }
+
   const email = req.body.email;
   const password = req.body.password;
 
@@ -54,7 +71,8 @@ router.post('/login', (req, res) => {
   User.findOne({ email }).then(user => {
     //Check for user
     if (!user) {
-      return res.status(404).json({ email: 'User not found' });
+        errors.email = 'Looks like you haven\' registered yet';
+      return res.status(404).json(errors);
     }
 
     //Check Password
@@ -77,7 +95,8 @@ router.post('/login', (req, res) => {
             });
         });
       } else {
-        return res.status(400).json({ password: 'Password incorrect' });
+        errors.password = 'That password doesn\'t quite look right'
+        return res.status(400).json(errors);
       }
     });
   });
@@ -88,6 +107,45 @@ router.post('/login', (req, res) => {
 //@access: Private
 router.get('/current', passport.authenticate('jwt', { session: false }), (req, res) => {
     res.json(req.user);
+});
+
+//@route: POST api/profiles
+//@desc: Create or Edit User Profile
+//@access: Private
+router.post('/', passport.authenticate('jwt', { session: false }), (req, res) => {
+   //Get fields
+   const profileFields = {};
+   profileFields.user = req.user.id;
+   if(req.body.handle) profileFields.handle = req.body.handle;
+   if(req.body.favoriteVerse) profileFields.favoriteVerse = req.body.favoriteVerse;
+   if(req.body.phone) profileFields.phone = req.body.phone;
+   if(req.body.email2) profileFields.email2 = req.body.email2;
+
+   Profile.findOne({ user: req.user.id })
+    .then(profile => {
+        if(profile){
+            //Update profile
+            Profile.findOneAndUpdate(
+                { user: req.user.id }, 
+                { $set: profileFields }, 
+                { new: true })
+                    .then(profile => res.json(profile));
+        } else{
+            // Create new Profile
+
+            //Check if handle exists
+            Profile.findOne({ handle: profileFields.handle })
+            .then(profile => {
+                if(profile){
+                    errors.handle = 'That handle already exists';
+                    res.status(400).json(errors);
+                }
+
+                //Save new Profile
+                new Profile(profileFields).save().then(profile => res.json(profile));
+            });
+        }
+    });
 });
 
 module.exports = router;
